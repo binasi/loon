@@ -13,20 +13,17 @@
 ```
 .
 ├── README.md
-└── scripts/                 # 脚本
-    └── <脚本名>/
-        ├── <脚本名>.js          # 主脚本
-        ├── <脚本名>.cookie.js   # Cookie 抓取(可选)
-        └── README.md            # 该脚本的使用说明
+└── <脚本名>/                 # 一脚本一文件夹
+    ├── <脚本名>.js           # 主脚本
+    ├── <脚本名>.plugin       # Loon 插件(可选)
+    └── README.md             # 该脚本的使用说明
 ```
-
-> 计划后续增加 `plugins/` 目录用于存放 Loon 插件（`.plugin`）。
 
 ## 脚本列表
 
 | 脚本 | 说明 | 类型 |
 |---|---|---|
-| [supxh](./scripts/supxh/) | 肖恩AI（免费大模型 API）每日签到 + Cookie 自动抓取 | Request / Cron |
+| [supxh](./supxh/) | 肖恩AI（免费大模型 API）每日签到 | 插件 / Cron |
 
 ## 使用说明
 

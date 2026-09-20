@@ -7,7 +7,7 @@
  * 兼容三种输入：
  *   ① 插件对象参数 {username, password} → 自动登录（推荐）
  *   ② 字符串参数 = 完整 Cookie            → 直接用（旧用法）
- *   ③ 无参数                              → 读取本地缓存（由本脚本或 Cookie 抓取脚本写入）
+ *   ③ 无参数                              → 读取本地缓存（由本脚本登录成功后写入）
  *
  * @Author: binasi <https://github.com/binasi/loon>
  * @Updated: 2026-09-20
@@ -19,7 +19,7 @@
  * debug = switch,false,tag=调试模式,desc=仅记录请求状态与判定结果
  *
  * [Script]
- * cron "30 8 * * *" then script("supxh/supxh.js", {${username}, ${password}, ${debug}}) with tag="肖恩AI签到", timeout=60
+ * cron "30 8 * * *" then script("https://raw.githubusercontent.com/binasi/loon/main/supxh/supxh.js", {${username}, ${password}, ${debug}}) with tag="肖恩AI签到", timeout=60
  */
 
 const SCRIPT_VERSION = "2026-09-20.r2";

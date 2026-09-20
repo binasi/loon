@@ -11,4 +11,4 @@ password = input,"",tag=密码,desc=肖恩AI 登录密码
 debug = switch,false,tag=调试模式,desc=仅记录请求状态与判定结果
 
 [Script]
-cron "30 8 * * *" then script("https://raw.githubusercontent.com/binasi/loon/main/scripts/supxh/supxh.js", {${username}, ${password}, ${debug}}) with tag="肖恩AI签到", timeout=60
+cron "30 8 * * *" then script("https://raw.githubusercontent.com/binasi/loon/main/supxh/supxh.js", {${username}, ${password}, ${debug}}) with tag="肖恩AI签到", timeout=60
