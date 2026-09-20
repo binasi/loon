@@ -1,0 +1,14 @@
+#!name = 肖恩AI签到
+#!desc = 每日自动签到领额度；在插件设置中填写账号与密码，无需手动抓 Cookie。
+#!author = binasi
+#!homepage = https://github.com/binasi/loon
+#!tag = 签到
+#!loon_version = 3.5.1(978)
+
+[Argument]
+username = input,"",tag=账号,desc=肖恩AI 账号或邮箱
+password = input,"",tag=密码,desc=肖恩AI 登录密码
+debug = switch,false,tag=调试模式,desc=仅记录请求状态与判定结果
+
+[Script]
+cron "30 8 * * *" then script("https://raw.githubusercontent.com/binasi/loon/main/scripts/supxh/supxh.js", {${username}, ${password}, ${debug}}) with tag="肖恩AI签到", timeout=60
