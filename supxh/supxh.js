@@ -1,28 +1,30 @@
 /**
  * 肖恩AI 每日签到 · 免费大模型API，每日签到领 1000~3000 额度
  *
- * 抓取：无需手动抓包 —— 在 Loon 插件设置中填写账号与密码，脚本自动登录获取 Cookie
- * 签到：cron 每日定时自动登录 + 签到，通知本次获得额度
+ * 抓取：无需手动抓包 —— 在 Loon 插件设置中填写账号与密码，脚本自动登录签到
+ * 签到：cron 每日定时逐个账号自动登录 + 签到，多账号时汇总通知
  *
- * 兼容三种输入：
- *   ① 插件对象参数 {username, password} → 自动登录（推荐）
- *   ② 字符串参数 = 完整 Cookie            → 直接用（旧用法）
- *   ③ 无参数                              → 读取本地缓存（由本脚本登录成功后写入）
+ * 输入方式：
+ *   ① 插件多账号参数 accounts（JSON 数组）→ 批量签到（推荐）
+ *   ② 插件单账号参数 username / password
+ *   ③ 字符串参数 = 完整 Cookie（旧用法，单账号）
+ *   ④ 无参数 → 读取本地缓存 Cookie（单账号）
  *
  * @Author: binasi <https://github.com/binasi/loon>
  * @Updated: 2026-09-20
  *
  * ===== Loon（3.5.1+）=====
  * [Argument]
- * username = input,"",tag=账号,desc=肖恩AI 账号或邮箱
- * password = input,"",tag=密码,desc=肖恩AI 登录密码
+ * username = input,"",tag=账号,desc=肖恩AI 账号或邮箱（单账号）
+ * password = input,"",tag=密码,desc=肖恩AI 登录密码（单账号）
+ * accounts = input,"",tag=多账号(JSON),desc=选填；填写后优先；格式 [{"username":"a","password":"b"},...]
  * debug = switch,false,tag=调试模式,desc=仅记录请求状态与判定结果
  *
  * [Script]
- * cron "30 8 * * *" then script("https://raw.githubusercontent.com/binasi/loon/main/supxh/supxh.js", {${username}, ${password}, ${debug}}) with tag="肖恩AI签到", timeout=60
+ * cron "30 8 * * *" then script("https://raw.githubusercontent.com/binasi/loon/main/supxh/supxh.js", {${username}, ${password}, ${accounts}, ${debug}}) with tag="肖恩AI签到", timeout=300
  */
 
-const SCRIPT_VERSION = "2026-09-20.r2";
+const SCRIPT_VERSION = "2026-09-20.r3";
 const BASE_URL = "https://free.supxh.xin";
 const COOKIE_KEY = "supxh_cookie";
 const UA =
@@ -40,30 +42,55 @@ function log(msg) {
   console.log("[肖恩AI] " + msg);
 }
 
+function notify(title, content) {
+  $notification.post("肖恩AI签到", title, content);
+}
+
 // ---------- 参数解析 ----------
 function parseArgument() {
   const arg = typeof $argument !== "undefined" ? $argument : null;
 
-  // ① 插件对象参数：账号密码自动登录
+  // ① 插件对象参数
   if (arg && typeof arg === "object") {
+    const debug = !!arg.debug;
+
+    // 多账号优先
+    const raw = arg.accounts ? String(arg.accounts).trim() : "";
+    if (raw) {
+      try {
+        const list = JSON.parse(raw);
+        if (Array.isArray(list) && list.length) {
+          const accounts = list
+            .filter((a) => a && a.username && a.password)
+            .map((a) => ({ username: String(a.username).trim(), password: String(a.password) }));
+          if (accounts.length) return { mode: "login", accounts: accounts, debug: debug };
+        }
+        return { mode: "error", message: "多账号 JSON 为空或格式不正确", debug: debug };
+      } catch (e) {
+        return { mode: "error", message: "多账号 JSON 解析失败：" + e.message, debug: debug };
+      }
+    }
+
+    // 单账号
     const u = arg.username ? String(arg.username).trim() : "";
     const p = arg.password ? String(arg.password) : "";
-    return { mode: "login", username: u, password: p, debug: !!arg.debug };
+    if (u && p) return { mode: "login", accounts: [{ username: u, password: p }], debug: debug };
+    return { mode: "none" };
   }
 
-  // ② 字符串参数：直接当 Cookie 用（向后兼容）
+  // ② 字符串参数 = Cookie
   if (typeof arg === "string" && arg.trim()) {
     return { mode: "cookie", cookie: arg.trim(), debug: false };
   }
 
-  // ③ 无参数：读本地缓存
+  // ③ 本地缓存 Cookie
   const saved = $persistentStore.read(COOKIE_KEY) || "";
   if (saved) return { mode: "cookie", cookie: String(saved), debug: false };
 
   return { mode: "none" };
 }
 
-// ---------- 响应头工具：大小写不敏感、兼容数组 ----------
+// ---------- 响应头工具 ----------
 function headerOf(headers, name) {
   if (!headers) return "";
   const lower = String(name).toLowerCase();
@@ -77,7 +104,6 @@ function headerOf(headers, name) {
   return "";
 }
 
-// Set-Cookie 属性名（需排除，它们不是 Cookie 名值对）
 const COOKIE_ATTRS = [
   "path",
   "domain",
@@ -91,7 +117,6 @@ const COOKIE_ATTRS = [
   "comment"
 ];
 
-// 从 Set-Cookie 原文提取 "name=value; name2=value2"
 function extractCookie(raw) {
   if (!raw) return "";
   const text = Array.isArray(raw) ? raw.join("; ") : String(raw);
@@ -111,130 +136,153 @@ function extractCookie(raw) {
   return out.join("; ");
 }
 
+// ---------- Promise 封装 $httpClient ----------
+function httpPost(options) {
+  return new Promise(function (resolve) {
+    $httpClient.post(options, function (error, response, data) {
+      resolve({ error: error, response: response, data: data });
+    });
+  });
+}
+
 // ---------- 登录 ----------
-function doLogin(cfg, cb) {
-  log("开始登录账号: " + cfg.username);
-  $httpClient.post(
-    {
-      url: BASE_URL + "/api/auth/login",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Referer": BASE_URL + "/login",
-        "Origin": BASE_URL,
-        "User-Agent": UA
-      },
-      body: JSON.stringify({ username: cfg.username, password: cfg.password }),
-      timeout: 15000
+async function doLogin(username, password, debug) {
+  const r = await httpPost({
+    url: BASE_URL + "/api/auth/login",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "Referer": BASE_URL + "/login",
+      "Origin": BASE_URL,
+      "User-Agent": UA
     },
-    function (error, response, data) {
-      if (error) {
-        log("登录请求失败: " + error);
-        return cb(null, "网络请求失败：" + error);
-      }
-      const status = response && response.status ? response.status : 0;
-      let body = null;
-      try {
-        body = JSON.parse(data);
-      } catch (e) {}
+    body: JSON.stringify({ username: username, password: password }),
+    timeout: 15000
+  });
 
-      const rawSetCookie = headerOf(response && response.headers, "Set-Cookie");
-      const cookie = extractCookie(rawSetCookie);
-      if (cfg.debug) {
-        log("登录 HTTP " + status + " | Set-Cookie 原文长度 " + rawSetCookie.length);
-      }
+  if (r.error) return { ok: false, message: "网络请求失败：" + r.error };
 
-      if (!body || body.success !== true) {
-        const msg = body && body.message ? body.message : "HTTP " + status;
-        return cb(null, msg);
-      }
-      if (!cookie) {
-        return cb(null, "登录成功但响应头未返回 Set-Cookie");
-      }
-      cb(cookie, null);
-    }
-  );
+  const status = r.response && r.response.status ? r.response.status : 0;
+  let body = null;
+  try {
+    body = JSON.parse(r.data);
+  } catch (e) {}
+
+  const rawSetCookie = headerOf(r.response && r.response.headers, "Set-Cookie");
+  const cookie = extractCookie(rawSetCookie);
+  if (debug) log("登录 [" + username + "] HTTP " + status + " | Set-Cookie 长度 " + rawSetCookie.length);
+
+  if (!body || body.success !== true) {
+    return { ok: false, message: (body && body.message) || "HTTP " + status };
+  }
+  if (!cookie) return { ok: false, message: "登录成功但响应头未返回 Set-Cookie" };
+  return { ok: true, cookie: cookie };
 }
 
 // ---------- 签到 ----------
-function doSignIn(cookie, debug, cb) {
-  $httpClient.post(
-    {
-      url: BASE_URL + "/api/user/signin",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Referer": BASE_URL + "/dashboard",
-        "Origin": BASE_URL,
-        "Cookie": cookie,
-        "User-Agent": UA
-      },
-      timeout: 15000
+async function doSignIn(cookie, debug) {
+  const r = await httpPost({
+    url: BASE_URL + "/api/user/signin",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "Referer": BASE_URL + "/dashboard",
+      "Origin": BASE_URL,
+      "Cookie": cookie,
+      "User-Agent": UA
     },
-    function (error, response, data) {
-      if (error) {
-        log("签到请求失败: " + error);
-        return cb("❌ 网络请求失败", String(error));
-      }
-      const status = response && response.status ? response.status : 0;
-      let body = null;
-      try {
-        body = JSON.parse(data);
-      } catch (e) {}
-      if (debug) log("签到 HTTP " + status + " | " + String(data).slice(0, 200));
+    timeout: 15000
+  });
 
-      if (!body) {
-        return cb("❌ 响应解析失败", "HTTP " + status + "\n" + String(data).slice(0, 120));
-      }
+  if (r.error) return { title: "❌ 网络请求失败", content: String(r.error) };
 
-      const msg = body.message || "";
-      if (body.success && body.data) {
-        const bonus =
-          body.data.bonus !== undefined && body.data.bonus !== null ? body.data.bonus : "";
-        return cb("✅ 签到成功", msg || (bonus !== "" ? "获得 +" + bonus + " 额度" : "签到成功"));
-      }
-      if (status === 401 || /请先登录|未登录|登录已失效|未授权/.test(msg)) {
-        return cb("⚠️ 登录已失效", "请检查插件中填写的账号与密码");
-      }
-      if (/已签到|已经签到/.test(msg)) {
-        return cb("ℹ️ 今日已签到", msg || "今天已经签到过了，明天再来");
-      }
-      return cb("❌ 签到失败", msg || "HTTP " + status);
-    }
-  );
+  const status = r.response && r.response.status ? r.response.status : 0;
+  let body = null;
+  try {
+    body = JSON.parse(r.data);
+  } catch (e) {}
+  if (debug) log("签到 HTTP " + status + " | " + String(r.data).slice(0, 200));
+
+  if (!body) {
+    return { title: "❌ 响应解析失败", content: "HTTP " + status + "\n" + String(r.data).slice(0, 120) };
+  }
+
+  const msg = body.message || "";
+  if (body.success) {
+    const bonus = body.data && body.data.bonus !== undefined && body.data.bonus !== null ? body.data.bonus : "";
+    return { title: "✅ 签到成功", content: msg || (bonus !== "" ? "获得 +" + bonus + " 额度" : "签到成功") };
+  }
+  if (status === 401 || /请先登录|未登录|登录已失效|未授权/.test(msg)) {
+    return { title: "⚠️ 登录已失效", content: "请检查插件中填写的账号与密码" };
+  }
+  if (/已签到|已经签到/.test(msg)) {
+    return { title: "ℹ️ 今日已签到", content: msg || "今天已经签到过了，明天再来" };
+  }
+  return { title: "❌ 签到失败", content: msg || "HTTP " + status };
+}
+
+// ---------- 账号脱敏 ----------
+function maskAccount(username) {
+  if (!username) return "(未知)";
+  if (username.indexOf("@") !== -1) {
+    const parts = username.split("@");
+    const name = parts[0];
+    const shown = name.length > 2 ? name.slice(0, 2) : name;
+    return shown + "***@" + parts[1];
+  }
+  return username.length > 2 ? username.slice(0, 2) + "***" : username;
 }
 
 // ---------- 主流程 ----------
-function run() {
+async function run() {
   log("脚本版本 " + SCRIPT_VERSION);
   const cfg = parseArgument();
 
+  if (cfg.mode === "error") {
+    notify("❌ 配置错误", cfg.message);
+    return done();
+  }
   if (cfg.mode === "none") {
-    $notification.post("肖恩AI签到", "🚫 未配置账号", "请在 Loon 插件设置中填写账号与密码");
+    notify("🚫 未配置账号", "请在 Loon 插件设置中填写账号与密码（多账号填 accounts）");
+    return done();
+  }
+  if (cfg.mode === "cookie") {
+    const s = await doSignIn(cfg.cookie, cfg.debug);
+    notify(s.title, s.content);
     return done();
   }
 
-  if (cfg.mode === "cookie") {
-    doSignIn(cfg.cookie, cfg.debug, function (title, content) {
-      $notification.post("肖恩AI签到", title, content);
-      done();
-    });
-    return;
+  // 登录模式（单账号或多账号）
+  const accounts = cfg.accounts;
+  const results = [];
+  for (let i = 0; i < accounts.length; i++) {
+    const acc = accounts[i];
+    const prefix = accounts.length > 1 ? "[" + (i + 1) + "/" + accounts.length + "] " : "";
+    log(prefix + "开始账号: " + acc.username);
+
+    const lr = await doLogin(acc.username, acc.password, cfg.debug);
+    if (!lr.ok) {
+      results.push({ username: acc.username, title: "❌ 登录失败", content: lr.message });
+      continue;
+    }
+    // 单账号时缓存 Cookie，便于后续无参数/字符串模式复用
+    if (accounts.length === 1) $persistentStore.write(lr.cookie, COOKIE_KEY);
+
+    const s = await doSignIn(lr.cookie, cfg.debug);
+    results.push({ username: acc.username, title: s.title, content: s.content });
   }
 
-  // 登录模式
-  doLogin(cfg, function (cookie, err) {
-    if (!cookie) {
-      $notification.post("肖恩AI签到", "❌ 登录失败", err || "请检查账号与密码");
-      return done();
-    }
-    $persistentStore.write(cookie, COOKIE_KEY);
-    log("登录成功，Cookie 已写入本地缓存");
-    doSignIn(cookie, cfg.debug, function (title, content) {
-      $notification.post("肖恩AI签到", title, content);
-      done();
-    });
-  });
+  if (results.length === 1) {
+    notify(results[0].title, results[0].content);
+  } else {
+    const body = results
+      .map(function (r) {
+        return "👤 " + maskAccount(r.username) + "\n" + r.title + "\n" + r.content;
+      })
+      .join("\n\n");
+    notify("签到汇总（" + results.length + " 个账号）", body);
+  }
+  done();
 }
 
 run();
