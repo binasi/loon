@@ -47,7 +47,7 @@ https://raw.githubusercontent.com/binasi/loon/main/supxh/supxh.plugin
 
 ```ini
 [Script]
-cron "30 8 * * *" then script("https://raw.githubusercontent.com/binasi/loon/main/supxh/supxh.js") with tag="肖恩AI签到", timeout=60
+cron "0 9 * * *" then script("https://raw.githubusercontent.com/binasi/loon/main/supxh/supxh.js") with tag="肖恩AI签到", timeout=60
 ```
 
 ## 维护记录

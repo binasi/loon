@@ -21,7 +21,7 @@
  * debug = switch,false,tag=调试模式,desc=仅记录请求状态与判定结果
  *
  * [Script]
- * cron "30 8 * * *" then script("https://raw.githubusercontent.com/binasi/loon/main/supxh/supxh.js", {${username}, ${password}, ${accounts}, ${debug}}) with tag="肖恩AI签到", timeout=300
+ * cron "0 9 * * *" then script("https://raw.githubusercontent.com/binasi/loon/main/supxh/supxh.js", {${username}, ${password}, ${accounts}, ${debug}}) with tag="肖恩AI签到", timeout=300
  */
 
 const SCRIPT_VERSION = "2026-09-20.r3";
