@@ -1,0 +1,15 @@
+#!name = <站点显示名>签到
+#!desc = 每日自动签到；支持多账号，在插件设置中填写账号与密码即可，无需手动抓 Cookie。
+#!author = <你的名字>
+#!homepage = https://github.com/<你的ID>/<你的仓库>
+#!tag = 签到
+#!loon_version = 3.5.1(978)
+
+[Argument]
+username = input,"",tag=账号,desc=<站点> 账号或邮箱（单账号时填写）
+password = input,"",tag=密码,desc=<站点> 登录密码（单账号时填写）
+accounts = input,"",tag=多账号(JSON),desc=选填；填写后优先；格式 [{"username":"a@b.com","password":"xxx"},{"username":"c","password":"yyy"}]
+debug = switch,false,tag=调试模式,desc=仅记录请求状态与判定结果
+
+[Script]
+cron "0 9 * * *" then script("https://raw.githubusercontent.com/<你的ID>/<你的仓库>/main/<name>/<name>.js", {${username}, ${password}, ${accounts}, ${debug}}) with tag="<站点显示名>签到", timeout=300
