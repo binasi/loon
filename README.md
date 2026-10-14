@@ -24,6 +24,7 @@
 | 脚本 | 说明 | 类型 |
 |---|---|---|
 | [supxh](./supxh/) | 肖恩AI（免费大模型 API）每日签到 | 插件 / Cron |
+| [workbuddy](./workbuddy/) | WorkBuddy（腾讯 AI 办公工具）每日签到 | 插件 / Cron |
 
 ## 使用说明
 
